@@ -7,14 +7,19 @@ __version__ = '1.0'
 import sys
 import logging
 import argparse
+import signal
 from operator import and_
-from os import makedirs
-from os.path import join, exists, abspath, basename
+from os import makedirs, listdir
+from os.path import join, exists, abspath, basename, isfile
 from logging import StreamHandler, Formatter
 from shutil import rmtree
+from multiprocessing import Pool
+from multiprocessing.managers import SyncManager
 from blast import blastx, makeblastdb
 from blast import besthit, parse_blastext_frame
 from seqio import parse_fasta, translate, Seq
+from msa import mafft
+import msap
 # from obejct import Sequence
 
 
@@ -31,6 +36,9 @@ def prompt(msg):
 
 
 def run(args):
+    pool_timeout = 65535
+    task = []
+
     if exists(args.outdir):
         resp = prompt('The directory {0} existed, remove it?'.format(args.outdir))
         if resp == 'yes':
@@ -77,26 +85,36 @@ def run(args):
 
     args.ref = abspath(args.ref)
 
-    makedirs(join(args.out, 'blast'))
-    makedirs(join(args.out, 'msain_aa'))
-    makedirs(join(args.out, 'msain_nt'))
-    makedirs(join(args.out, 'clu_aa'))
-    makedirs(join(args.out, 'clu_nt'))
+    blastx_dir = join(args.out, 'blastx')
+    msain_aa_dir = join(args.out, 'msain_aa')
+    msain_nt_dir = join(args.out, 'msain_nt')
+    clu_aa_dir = join(args.out, 'clu_aa')
+    clu_nt_dir = join(args.out, 'clu_nt')
+    makedirs(blastx_dir)
+    makedirs(msain_aa_dir)
+    makedirs(msain_nt_dir)
+    makedirs(clu_aa_dir)
+    makedirs(clu_nt_dir)
 
     # Perform blastx and besthit
     if not args.blastx:
-        blastdbout = join(args.out, 'blast', basename(args.ref))
+        blastdbout = join(blastx_dir, basename(args.ref))
         makeblastdb(path_in=args.ref, dbtype='prot', path_out=blastdbout)
+
+        task[:] = []
         args.blast = []
         for i in args.ss:
-            blastout = join(args.out, 'blast', '_'.join(basename(i), basename(args.ref)))
-            blastx(query=i, db=args.ref, out=blastout)
+            blastout = join(blastx_dir, '{0}_to_{1}'.format(basename(i), basename(args.ref)))
+            task.append((i, args.ref, blastout))
             args.blast.append(blastout)
+        Pool(args.nthread).map_async(blastx, task).get(pool_timeout)
 
+    task[:] = []
     for i in args.blast:
-        besthit(path_in=i, path_out=join(args.out, 'blast', basename(i) + '.besthit'))
+        task.append((i, join(blastx_dir, '{0}.besthit'.format(basename(i)))))
+    Pool(args.nthread).map_async(besthit, task).get(pool_timeout)
 
-    # Parse the blastx results
+    # Parse blastx files
     sidsets = []
     idmap_qs = {}
     sid_qidset = {}
@@ -133,16 +151,46 @@ def run(args):
                 if idmap_qs.get(header) in common_sid:
                     seq.update({header: Seq(header, sequence, 'rc')})
 
+    # Multiple sequence alignment
+    task[:] = []
     for sid in common_sid:
-        with open(join(args.out, 'msain_aa', sid), 'w') as fo:
+        namelength = 0
+        with open(join(msain_aa_dir, sid), 'w') as fo:
             for qid in sid_qidset.get(sid):
+                if len(qid) > namelength:
+                    namelength = len(qid)
                 fo.write('>')
                 fo.write(seq.get(qid).header)
                 fo.write('\n')
                 fo.write(translate(seq.get(qid).sequence), qframe.get(''.join(qid, sid)))
                 fo.write('\n')
+        path_fa = join(msain_aa_dir, '{0}.fa'.format(sid))
+        path_clu = join(clu_aa_dir, '{0}.clu'.format(sid))
+        task.append((path_fa, path_clu, namelength + 4))
 
-    #
+    Pool(args.nthread).map_async(mafft, task).get(pool_timeout)
+
+    # Parse clustal files
+    manager = SyncManager()
+    manager.start(lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
+    shared_list = manager.list()
+    parser = msap.Parse(perfact_matches_percent=args.perfect_matches_percent,
+                        block_len=args.block_len,
+                        neighbor_length=args.neighbor_length,
+                        neighbor_matches_percent=args.neighbor_matches_percent)
+    task[:] = [(join(msain_aa_dir, f), parser, shared_list) for f in listdir(msain_aa_dir) if isfile(f)]
+    Pool(args.nthread).map_async(parse_clustal, task).get(pool_timeout)
+
+    with open(join(args.out, 'result.txt'), 'w') as fo:
+        for i in shared_list:
+            fo.write(i)
+            fo.write('\n')
+            fo.flush()
+
+
+def parse_clustal(path_in, parser, shared_list):
+    result = parser.parse(path_in)
+    shared_list.append(result.data)
 
 
 def main():
@@ -183,7 +231,7 @@ def main():
                         default=10,
                         help='block length (default: 10)')
 
-    parser.add_argument('-pp', dest='perfact_matches_percent',
+    parser.add_argument('-pp', dest='perfect_matches_percent',
                         metavar='<float>',
                         type=float,
                         default=0.9,
@@ -204,7 +252,7 @@ def main():
                         help='percentage of the number of perfect matches in '
                         'each neighboring side (default: 0.8)')
 
-    parser.add_argument('-cpu', dest='cpu',
+    parser.add_argument('-nthread', dest='nthread',
                         metavar='<int>',
                         type=int,
                         default=1,
