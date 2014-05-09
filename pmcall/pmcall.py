@@ -20,7 +20,6 @@ from blast import besthit, parse_blastext_frame
 from seqio import parse_fasta, translate, Seq
 from msa import mafft
 import msap
-# from obejct import Sequence
 
 
 def prompt(msg):
@@ -121,14 +120,14 @@ def run(args):
     qframe = {}
     for i in args.blast:
         sidset = set()
-        for qid, sid, qframe, sframe in parse_blastext_frame(i):
+        for qid, sid, qf, sf in parse_blastext_frame(i):
             sidset.add(sid)
             idmap_qs.update({qid: sid})
             if sid in sid_qidset:
                 sid_qidset.get(sid).add(qid)
             else:
                 sid_qidset.update({sid: {qid}})
-            qframe.update({''.join(qid, sid): int(qframe)})
+            qframe.update({''.join(qid, sid): int(qf)})
         sidsets.append(sidset)
 
     common_sid = reduce(and_, sidsets)
@@ -157,12 +156,14 @@ def run(args):
         namelength = 0
         with open(join(msain_aa_dir, sid), 'w') as fo:
             for qid in sid_qidset.get(sid):
-                if len(qid) > namelength:
-                    namelength = len(qid)
+                qf = qframe.get(''.join(qid, sid))
+                name = '{0}({1},{2})'.format(qid, qf, seq.get(qid).line)
+                if len(name) > namelength:
+                    namelength = len(name)
                 fo.write('>')
-                fo.write(seq.get(qid).header)
+                fo.write(name)
                 fo.write('\n')
-                fo.write(translate(seq.get(qid).sequence), qframe.get(''.join(qid, sid)))
+                fo.write(translate(seq.get(qid).sequence), qf)
                 fo.write('\n')
         path_fa = join(msain_aa_dir, '{0}.fa'.format(sid))
         path_clu = join(clu_aa_dir, '{0}.clu'.format(sid))
@@ -174,11 +175,11 @@ def run(args):
     manager = SyncManager()
     manager.start(lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
     shared_list = manager.list()
-    parser = msap.Parse(perfact_matches_percent=args.perfect_matches_percent,
+    parser = msap.Parse(perfact_matches=args.perfect_matches_percent,
                         block_len=args.block_len,
-                        neighbor_length=args.neighbor_length,
-                        neighbor_matches_percent=args.neighbor_matches_percent)
-    task[:] = [(join(msain_aa_dir, f), parser, shared_list) for f in listdir(msain_aa_dir) if isfile(f)]
+                        neighbor_len=args.neighbor_length,
+                        neighbor_matches=args.neighbor_matches_percent)
+    task[:] = [(join(msain_aa_dir, f), parser, 'aa', shared_list) for f in listdir(msain_aa_dir) if isfile(f)]
     Pool(args.nthread).map_async(parse_clustal, task).get(pool_timeout)
 
     with open(join(args.out, 'result.txt'), 'w') as fo:
@@ -188,8 +189,8 @@ def run(args):
             fo.flush()
 
 
-def parse_clustal(path_in, parser, shared_list):
-    result = parser.parse(path_in)
+def parse_clustal(path_in, parser, seqtype, shared_list):
+    result = parser.parse(path_in, 'aa')
     shared_list.append(result.data)
 
 
