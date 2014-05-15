@@ -4,6 +4,7 @@
 
 __version__ = '1.0'
 
+import re
 import sys
 import logging
 import argparse
@@ -44,6 +45,10 @@ def check_required():
     for i in commands:
         if not which(i):
             return i
+
+
+def replace_nonalphanum(text, symbol='_'):
+    return re.sub('[^0-9a-zA-Z_.-]+', symbol, text)
 
 
 def fwrite(f, contents):
@@ -244,7 +249,7 @@ def run(args):
                 data.append('>{0}\n'.format(name))
                 data.append('{0}\n'.format(translate(qseq.get(qid), qf)))
             namelength += 4
-            with open(join(dfa_aa, '{0}.{1}.fa'.format(sid, namelength)), 'w') as fo:
+            with open(join(dfa_aa, '{0}.{1}.fa'.format(replace_nonalphanum(sid), namelength)), 'w') as fo:
                 fo.write(''.join(data))
                 fo.flush()
 

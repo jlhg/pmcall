@@ -4,7 +4,7 @@ from subprocess import call
 def makeblastdb(path_in, dbtype, path_out):
     cmd = """
     set -e
-    makeblastdb -in {0} -dbtype {1} -out {2} -parse_seqids 1>/dev/null
+    makeblastdb -in {0} -dbtype {1} -out {2} 1>/dev/null
     """.format(path_in, dbtype, path_out)
 
     return call(cmd, shell=True)
