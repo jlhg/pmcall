@@ -118,7 +118,7 @@ def run(args):
     logging.getLogger().addHandler(stream_handler)
 
     logger = logging.getLogger('main')
-    logger.info('starting to perform mutation discovery.')
+    logger.info('Starting to perform mutation discovery.')
 
     if exists(fstep):
         step = int(open(fstep, 'r').read())
@@ -139,7 +139,7 @@ def run(args):
 
     if step == 1:
         # Perform blastx
-        logger.info('performing blastx.')
+        logger.info('Performing blastx.')
         if exists(dblastx):
             rmtree(dblastx)
         makedirs(dblastx)
@@ -166,7 +166,7 @@ def run(args):
 
     if step == 2:
         # Perform best hit filter
-        logger.info('performing best hit filter.')
+        logger.info('Performing best hit filter.')
         if exists(dbesthit):
             rmtree(dbesthit)
         makedirs(dbesthit)
@@ -186,13 +186,13 @@ def run(args):
 
     if step == 3:
         # Generate protein fasta files for multiple sequence alignment
-        logger.info('generating protein fasta files for multiple sequence alignment.')
+        logger.info('Generating protein fasta files for multiple sequence alignment.')
         if exists(dfa_aa):
             rmtree(dfa_aa)
         makedirs(dfa_aa)
 
         # Parse best hit blastx
-        logger.info('reading blastx files')
+        logger.info('Reading blastx files.')
         sid_sets = []
         idmap_qs = {}
         sid_qidset = {}
@@ -212,7 +212,7 @@ def run(args):
         common_sid_set = reduce(and_, sid_sets)
 
         # Parse FASTA files
-        logger.info('reading fasta files')
+        logger.info('Reading fasta files.')
         qseq = {}
         qline = {}
         for i in args.ss:
@@ -232,7 +232,7 @@ def run(args):
                         qseq.update({header: sequence})
                         qline.update({header: 'rc'})
 
-        logger.info('generating protein fasta files.')
+        logger.info('Generating protein fasta files.')
         for sid in common_sid_set:
             namelength = 0
             data = []
@@ -253,7 +253,7 @@ def run(args):
 
     if step == 4:
         # Perform MAFFT (multiple sequence alignment)
-        logger.info('performing MAFFT.')
+        logger.info('Performing MAFFT.')
         if exists(dclu_aa):
             rmtree(dclu_aa)
         makedirs(dclu_aa)
@@ -270,7 +270,7 @@ def run(args):
 
     if step == 5:
         # Convert aa clustal files to nt clustal files
-        logger.info('converting protein clustal files to nucleotide clustal files.')
+        logger.info('Converting protein clustal files to nucleotide clustal files.')
         if exists(dclu_nt):
             rmtree(dclu_nt)
         makedirs(dclu_nt)
@@ -316,7 +316,7 @@ def run(args):
 
     if step == 6:
         # Parse clustal files and report mutation profiles
-        logger.info('begining to parse clustal files and report mutation profiles')
+        logger.info('Begining to parse clustal files and report mutation profiles.')
         manager = SyncManager()
         manager.start(lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
 
@@ -346,7 +346,7 @@ def run(args):
         step = 7
         fwrite(fstep, '7')
 
-    logger.info('mutation discovery finished.')
+    logger.info('Mutation discovery finished.')
 
 
 def parse_clustal(path_in, mutationparser, seqtype, clustal_mutation_profiles):
