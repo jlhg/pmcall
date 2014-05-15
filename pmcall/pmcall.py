@@ -10,16 +10,18 @@ import argparse
 import signal
 from operator import and_
 from os import makedirs, listdir
-from os.path import join, exists, abspath, basename, isfile
+from os.path import join, exists, basename, isfile
 from logging import StreamHandler, Formatter
 from shutil import rmtree
 from multiprocessing import Pool
 from multiprocessing.managers import SyncManager
+from thirdparty.shutil33 import which
 from blast import blastx, makeblastdb
 from blast import besthit, parse_blastext_frame
-from seqio import parse_fasta, translate, Seq
+from seqio import parse_fasta, translate
 from msa import mafft
-import msap
+from mutation import MutationParser
+from clustal import aa_to_nt
 
 
 def prompt(msg):
@@ -34,17 +36,46 @@ def prompt(msg):
             sys.stdout.flush()
 
 
-def run(args):
-    pool_timeout = 65535
-    task = []
+def check_required():
+    commands = [
+        'mafft',
+        'blastx',
+    ]
+    for i in commands:
+        if not which(i):
+            return i
 
-    if exists(args.outdir):
-        resp = prompt('The directory {0} existed, remove it?'.format(args.outdir))
+
+def fwrite(f, contents):
+    with open(f, 'w') as fo:
+        fo.write(contents)
+        fo.flush()
+
+
+def run(args):
+    # Check the required programs
+    required_program = check_required()
+    if required_program:
+        sys.exit('{0} is required to perform the mutation discovery.'.format(required_program))
+
+    flog = join(args.dout, 'log')
+    fstep = join(args.dout, 'step')
+    fprofile_aa = join(args.dout, 'mutation_profiles_aa.txt')
+    fprofile_nt = join(args.dout, 'mutation_profiles_nt.txt')
+    dblastx = join(args.dout, 'blastx')
+    dbesthit = join(args.dout, 'besthit')
+    dfa_aa = join(args.out, 'fa_aa')
+    dfa_nt = join(args.out, 'fa_nt')
+    dclu_aa = join(args.out, 'clu_aa')
+    dclu_nt = join(args.out, 'clu_nt')
+
+    if exists(args.dout) and not exists(fstep):
+        resp = prompt('The directory {0} existed, remove it?'.format(args.dout))
         if resp == 'yes':
-            rmtree(args.outdir)
-            makedirs(args.outdir)
+            rmtree(args.dout)
+            makedirs(args.dout)
         else:
-            sys.stdout.write('Cancel to perform the pmcall.\n')
+            sys.stdout.write('Cancel to perform the mutation discovery.\n')
             sys.stdout.flush()
             return
 
@@ -53,7 +84,7 @@ def run(args):
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
-        filename=join(args.outdir, 'log'),
+        filename=flog,
         filemode='w',
     )
     stream_handler = StreamHandler(sys.stdout)
@@ -62,136 +93,243 @@ def run(args):
     stream_handler.setLevel(logging.INFO)
     logging.getLogger().addHandler(stream_handler)
 
+    if exists(fstep):
+        step = int(open(fstep, 'r').read())
+    elif args.blastx:
+        step = 2
+        fwrite(fstep, '2')
+    else:
+        step = 1
+        fwrite(fstep, '1')
+
+    pool_timeout = 65535
+    task = []
+
     if args.rc:
         apply_rc = True
     else:
         apply_rc = False
 
-    # Change to absolute path
-    for i, j in enumerate(args.ss):
-        args.ss[i] = abspath(j)
+    if step == 1:
+        # Perform blastx
+        if exists(dblastx):
+            rmtree(dblastx)
+        makedirs(dblastx)
 
-    for i, j in enumerate(args.rs):
-        args.rs[i] = abspath(j)
-
-    if apply_rc:
-        for i, j in enumerate(args.rc):
-            args.rc[i] = abspath(j)
-
-    if args.blastx:
-        for i in enumerate(args.blastx):
-            args.blastx[i] = abspath(j)
-
-    args.ref = abspath(args.ref)
-
-    blastx_dir = join(args.out, 'blastx')
-    msain_aa_dir = join(args.out, 'msain_aa')
-    msain_nt_dir = join(args.out, 'msain_nt')
-    clu_aa_dir = join(args.out, 'clu_aa')
-    clu_nt_dir = join(args.out, 'clu_nt')
-    makedirs(blastx_dir)
-    makedirs(msain_aa_dir)
-    makedirs(msain_nt_dir)
-    makedirs(clu_aa_dir)
-    makedirs(clu_nt_dir)
-
-    # Perform blastx and besthit
-    if not args.blastx:
-        blastdbout = join(blastx_dir, basename(args.ref))
-        makeblastdb(path_in=args.ref, dbtype='prot', path_out=blastdbout)
+        fmakeblastdbout = join(dblastx, basename(args.ref))
+        makeblastdb(path_in=args.ref, dbtype='prot', path_out=fmakeblastdbout)
 
         task[:] = []
-        args.blast = []
-        for i in args.ss:
-            blastout = join(blastx_dir, '{0}_to_{1}'.format(basename(i), basename(args.ref)))
-            task.append((i, args.ref, blastout))
-            args.blast.append(blastout)
+        args.blastx = []
+
+        if apply_rc:
+            fqueries = args.ss + args.rs + args.rc
+        else:
+            fqueries = args.ss + args.rs
+
+        for i in fqueries:
+            fblastxout = join(dblastx, '{0}_to_{1}.blastx'.format(basename(i), basename(args.ref)))
+            task.append((i, fmakeblastdbout, fblastxout))
+            args.blastx.append(fblastxout)
         Pool(args.nthread).map_async(blastx, task).get(pool_timeout)
 
-    task[:] = []
-    for i in args.blast:
-        task.append((i, join(blastx_dir, '{0}.besthit'.format(basename(i)))))
-    Pool(args.nthread).map_async(besthit, task).get(pool_timeout)
+        step = 2
+        fwrite(fstep, '2')
 
-    # Parse blastx files
-    sidsets = []
-    idmap_qs = {}
-    sid_qidset = {}
-    qframe = {}
-    for i in args.blast:
-        sidset = set()
-        for qid, sid, qf, sf in parse_blastext_frame(i):
-            sidset.add(sid)
-            idmap_qs.update({qid: sid})
-            if sid in sid_qidset:
-                sid_qidset.get(sid).add(qid)
-            else:
-                sid_qidset.update({sid: {qid}})
-            qframe.update({''.join(qid, sid): int(qf)})
-        sidsets.append(sidset)
+    if step == 2:
+        # Perform best hit
+        if exists(dbesthit):
+            rmtree(dbesthit)
+        makedirs(dbesthit)
 
-    common_sid = reduce(and_, sidsets)
+        task[:] = []
+        for i in args.blastx:
+            task.append((i, join(dbesthit, '{0}.besthit'.format(basename(i)))))
+        Pool(args.nthread).map_async(besthit, task).get(pool_timeout)
 
-    # Parse FASTA files
-    seq = {}
-    for i in args.ss:
-        for header, sequence in parse_fasta(i):
-            if idmap_qs.get(header) in common_sid:
-                seq.update({header: Seq(header, sequence, 'ss')})
+        step = 3
+        fwrite(fstep, '3')
 
-    for i in args.rs:
-        for header, sequence in parse_fasta(i):
-            if idmap_qs.get(header) in common_sid:
-                seq.update({header: Seq(header, sequence, 'rs')})
+    if step == 3:
+        # Generate protein fasta files for multiple sequence alignment
+        if exists(dfa_aa):
+            rmtree(dfa_aa)
+        makedirs(dfa_aa)
 
-    if apply_rc:
-        for i in args.rc:
+        # Parse best hit blastx
+        sid_sets = []
+        idmap_qs = {}
+        sid_qidset = {}
+        qframe = {}
+        for i in (join(dbesthit, x) for x in listdir(dbesthit) if isfile(join(dbesthit, x))):
+            sid_set = set()
+            for qid, sid, qf, sf in parse_blastext_frame(i):
+                sid_set.add(sid)
+                idmap_qs.update({qid: sid})
+                if sid in sid_qidset:
+                    sid_qidset.get(sid).add(qid)
+                else:
+                    sid_qidset.update({sid: {qid}})
+                qframe.update({''.join(qid, sid): int(qf)})
+            sid_sets.append(sid_set)
+
+        common_sid_set = reduce(and_, sid_sets)
+
+        # Parse FASTA files
+        qseq = {}
+        qline = {}
+        for i in args.ss:
             for header, sequence in parse_fasta(i):
-                if idmap_qs.get(header) in common_sid:
-                    seq.update({header: Seq(header, sequence, 'rc')})
+                if idmap_qs.get(header) in common_sid_set:
+                    qseq.update({header: sequence})
+                    qline.update({header: 'ss'})
+        for i in args.rs:
+            for header, sequence in parse_fasta(i):
+                if idmap_qs.get(header) in common_sid_set:
+                    qseq.update({header: sequence})
+                    qline.update({header: 'rs'})
+        if apply_rc:
+            for i in args.rc:
+                for header, sequence in parse_fasta(i):
+                    if idmap_qs.get(header) in common_sid_set:
+                        qseq.update({header: sequence})
+                        qline.update({header: 'rc'})
 
-    # Multiple sequence alignment
-    task[:] = []
-    for sid in common_sid:
-        namelength = 0
-        with open(join(msain_aa_dir, sid), 'w') as fo:
+        for sid in common_sid_set:
+            namelength = 0
+            data = []
             for qid in sid_qidset.get(sid):
                 qf = qframe.get(''.join(qid, sid))
-                name = '{0}({1},{2})'.format(qid, qf, seq.get(qid).line)
+                name = '{0}({1},{2})'.format(qid, qline.get(qid), qf)
                 if len(name) > namelength:
                     namelength = len(name)
-                fo.write('>')
-                fo.write(name)
+                data.append('>{0}\n'.format(name))
+                data.append('{0}\n'.format(translate(qseq.get(qid)), qf))
+            with open(join(dfa_aa, '{0}.{1}.fa'.format(sid, namelength)), 'w') as fo:
+                fo.write(''.join(data))
+                fo.flush()
+
+        step = 4
+        fwrite(fstep, '4')
+
+    if step == 4:
+        # Perform MAFFT (multiple sequence alignment)
+        if exists(dclu_aa):
+            rmtree(dclu_aa)
+        makedirs(dclu_aa)
+
+        task[:] = []
+        for i in (x for x in listdir(dfa_aa) if isfile(join(dfa_aa, x))):
+            seg = i.split('.')
+            namelength = int(seg[-2])
+            task.append((join(dfa_aa, i), join(dclu_aa, '{0}.clu'.format('.'.join(seg[:-1]))), namelength))
+        Pool(args.nthread).map_async(mafft, task).get(pool_timeout)
+
+        step = 5
+        fwrite(fstep, '5')
+
+    if step == 5:
+        # Convert aa clustal files to nt clustal files
+        if exists(dclu_nt):
+            rmtree(dclu_nt)
+        makedirs(dclu_nt)
+
+        if 'qseq' not in locals():
+            sid_sets = []
+            idmap_qs = {}
+            sid_qidset = {}
+            for i in (join(dbesthit, x) for x in listdir(dbesthit) if isfile(join(dbesthit, x))):
+                sid_set = set()
+                for qid, sid, qf, sf in parse_blastext_frame(i):
+                    sid_set.add(sid)
+                    idmap_qs.update({qid: sid})
+                    if sid in sid_qidset:
+                        sid_qidset.get(sid).add(qid)
+                    else:
+                        sid_qidset.update({sid: {qid}})
+                sid_sets.append(sid_set)
+
+            common_sid_set = reduce(and_, sid_sets)
+            qseq = {}
+            for i in args.ss:
+                for header, sequence in parse_fasta(i):
+                    if idmap_qs.get(header) in common_sid_set:
+                        qseq.update({header: sequence})
+            for i in args.rs:
+                for header, sequence in parse_fasta(i):
+                    if idmap_qs.get(header) in common_sid_set:
+                        qseq.update({header: sequence})
+            if apply_rc:
+                for i in args.rc:
+                    for header, sequence in parse_fasta(i):
+                        if idmap_qs.get(header) in common_sid_set:
+                            qseq.update({header: sequence})
+
+        task[:] = []
+        for i in (x for x in listdir(dclu_aa) if isfile(join(dclu_aa, x))):
+            task.append((join(dclu_aa, i), join(dclu_nt, i), qseq, 60))
+        Pool(args.nthread).map_async(aa_to_nt, task).get(pool_timeout)
+
+        step = 6
+        fwrite(fstep, '6')
+
+    if step == 6:
+        # Parse clustal files and report mutation profiles
+        manager = SyncManager()
+        manager.start(lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
+
+        profile_aa = manager.dict()
+        mutationparser = MutationParser(
+            blocklen=args.blocklen,
+            perfact_match_percent=args.perfect_match_percent,
+            sidelen=args.sidelen,
+            side_match_percent=args.side_match_percent)
+
+        task[:] = []
+        for i in (join(dclu_aa, x) for x in listdir(dclu_aa) if isfile(join(dclu_aa, x))):
+            task.append((i, mutationparser, 'aa', profile_aa))
+        Pool(args.nthread).map_async(parse_clustal, task).get(pool_timeout)
+
+        write_profile(fprofile_aa, profile_aa)
+
+        profile_nt = manager.dict()
+
+        task[:] = []
+        for i in (join(dclu_nt, x) for x in listdir(dclu_nt) if isfile(join(dclu_nt, x))):
+            task.append((i, mutationparser, 'nt', profile_nt))
+        Pool(args.nthread).map_async(parse_clustal, task).get(pool_timeout)
+
+        write_profile(fprofile_nt, profile_nt)
+
+
+def parse_clustal(path_in, mutationparser, seqtype, clustal_mutation_profiles):
+    profile = mutationparser.parse(path_in, seqtype)
+    clustal_mutation_profiles.update({path_in.rstrip('.fa.clu'): profile})
+
+
+def write_profile(fprofile, clustal_mutation_profiles):
+    with open(fprofile, 'w') as fo:
+        fo.write('# Mutation Profiles\n')
+        fo.write('\t'.join([
+            'n_block',
+            'n_mutation',
+            'subject_id',
+            'query_id',
+            'mutation_profile',
+        ]))
+        fo.write('\n')
+
+        for sid, cm_profile in clustal_mutation_profiles.items():
+            for qid, m_profile in cm_profile.mutation_profiles.items():
+                fo.write('\t'.join([
+                    str(cm_profile.nblock),
+                    str(cm_profile.nmutation),
+                    sid,
+                    qid,
+                    ', '.join(m_profile),
+                ]))
                 fo.write('\n')
-                fo.write(translate(seq.get(qid).sequence), qf)
-                fo.write('\n')
-        path_fa = join(msain_aa_dir, '{0}.fa'.format(sid))
-        path_clu = join(clu_aa_dir, '{0}.clu'.format(sid))
-        task.append((path_fa, path_clu, namelength + 4))
-
-    Pool(args.nthread).map_async(mafft, task).get(pool_timeout)
-
-    # Parse clustal files
-    manager = SyncManager()
-    manager.start(lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
-    shared_list = manager.list()
-    parser = msap.Parse(perfact_matches=args.perfect_matches_percent,
-                        block_len=args.block_len,
-                        neighbor_len=args.neighbor_length,
-                        neighbor_matches=args.neighbor_matches_percent)
-    task[:] = [(join(msain_aa_dir, f), parser, 'aa', shared_list) for f in listdir(msain_aa_dir) if isfile(f)]
-    Pool(args.nthread).map_async(parse_clustal, task).get(pool_timeout)
-
-    with open(join(args.out, 'result.txt'), 'w') as fo:
-        for i in shared_list:
-            fo.write(i)
-            fo.write('\n')
-            fo.flush()
-
-
-def parse_clustal(path_in, parser, seqtype, shared_list):
-    result = parser.parse(path_in, 'aa')
-    shared_list.append(result.data)
+                fo.flush()
 
 
 def main():
@@ -222,45 +360,41 @@ def main():
                         metavar='<file>',
                         required=True,
                         help='reference sequences in FASTA format')
-    parser.add_argument('-out', dest='outdir',
+    parser.add_argument('-out', dest='dout',
                         metavar='<dir>',
                         required=True,
                         help='output directory')
-    parser.add_argument('-bl', dest='block_len',
+    parser.add_argument('-bl', dest='blocklen',
                         metavar='<int>',
                         type=int,
                         default=10,
                         help='block length (default: 10)')
-
-    parser.add_argument('-pp', dest='perfect_matches_percent',
+    parser.add_argument('-pp', dest='perfect_match_percent',
                         metavar='<float>',
                         type=float,
                         default=0.9,
                         help='percentage of the number of perfect matches '
                         'in a clustal block (default: 0.9)')
-
-    parser.add_argument('-ln', dest='neighbor_length',
+    parser.add_argument('-sl', dest='sidelen',
                         metavar='<int>',
                         type=int,
                         default=5,
                         help='length of each neighboring side for a '
                         'point mutation (default: 5)')
-
-    parser.add_argument('-np', dest='neighbor_matches_percent',
+    parser.add_argument('-sp', dest='side_match_percent',
                         metavar='<float>',
                         type=float,
                         default=0.8,
                         help='percentage of the number of perfect matches in '
                         'each neighboring side (default: 0.8)')
-
     parser.add_argument('-nthread', dest='nthread',
                         metavar='<int>',
                         type=int,
                         default=1,
                         help='number of threads to perform this program (default: 1)')
     args = parser.parse_args()
-    print(args)
-    # run(args)
+
+    run(args)
 
 
 if __name__ == '__main__':

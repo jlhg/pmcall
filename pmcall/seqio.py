@@ -2,14 +2,6 @@ from table import DNA_CODON_TABLE
 from itertools import izip
 
 
-class Seq(object):
-
-    def __init__(self, name, seq, line):
-        self.name = name
-        self.seq = seq
-        self.line = line
-
-
 def parse_fasta(path):
     """A generator that iterates two elements (header
     and sequence) each time"""
@@ -50,18 +42,27 @@ def reverse_complement(seq):
 
     rvseq = []
     for i in seq.upper()[::-1]:
-        rvseq.append(table.get(i))
+        if i in table:
+            rvseq.append(table.get(i))
+        else:
+            rvseq.append('N')
 
     return ''.join(rvseq)
 
 
 def translate(seq, frame):
+    seq = seq.upper()
+
     if frame < 0:
         aa = []
         for i in izip(*[iter(reverse_complement(seq)[-frame - 1:])] * 3):
             aa.append(DNA_CODON_TABLE.get(''.join(i)))
     else:
         for i in izip(*[iter(seq[frame - 1:])] * 3):
-            aa.append(DNA_CODON_TABLE.get(''.join(i)))
+            codon = ''.join(i)
+            if codon in DNA_CODON_TABLE:
+                aa.append(DNA_CODON_TABLE.get(''.join(i)))
+            else:
+                aa.append('X')
 
     return ''.join(aa)
