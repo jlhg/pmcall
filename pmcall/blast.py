@@ -24,7 +24,7 @@ def besthit(path_in, path_out):
     cmd = """
     set -e
     cat {0} |
-    awk -F'\t' '$1 !~ /^#/ {{OFS="\t"; print $0\}}' | \
+    awk -F'\t' '$1 !~ /^#/ {{OFS="\t"; print $0}}' | \
     sort -t$'\t' -k1d,1 -k11g,11 -k3gr,3 -k4gr,4 -k21gr,21 -k13gr | \
     sort -t$'\t' -k1,1 -u >{1}
     """.format(path_in, path_out)
