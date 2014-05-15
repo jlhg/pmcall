@@ -15,13 +15,13 @@ from logging import StreamHandler, Formatter
 from shutil import rmtree
 from multiprocessing import Pool
 from multiprocessing.managers import SyncManager
-from thirdparty.shutil33 import which
-from blast import blastx, makeblastdb
-from blast import besthit, parse_blastext_frame
-from seqio import parse_fasta, translate
-from msa import mafft
-from mutation import MutationParser
-from clustal import aa_to_nt
+from pmcall.thirdparty.shutil33 import which
+from pmcall.blast import blastx, makeblastdb
+from pmcall.blast import besthit, parse_blastext_frame
+from pmcall.seqio import parse_fasta, translate
+from pmcall.msa import mafft
+from pmcall.mutation import MutationParser
+from pmcall.clustal import aa_to_nt
 
 
 def prompt(msg):
@@ -82,7 +82,7 @@ def run(args):
     # Set up logging
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        format='%(asctime)s [%(levelname)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         filename=flog,
         filemode='w',
@@ -92,6 +92,9 @@ def run(args):
     stream_handler.setFormatter(formatter)
     stream_handler.setLevel(logging.INFO)
     logging.getLogger().addHandler(stream_handler)
+
+    logger = logging.getLogger('main')
+    logger.info('starting to perform mutation discovery.')
 
     if exists(fstep):
         step = int(open(fstep, 'r').read())
@@ -112,6 +115,7 @@ def run(args):
 
     if step == 1:
         # Perform blastx
+        logger.info('performing blastx.')
         if exists(dblastx):
             rmtree(dblastx)
         makedirs(dblastx)
@@ -138,6 +142,7 @@ def run(args):
 
     if step == 2:
         # Perform best hit
+        logger.info('performing best hit filter.')
         if exists(dbesthit):
             rmtree(dbesthit)
         makedirs(dbesthit)
@@ -152,11 +157,13 @@ def run(args):
 
     if step == 3:
         # Generate protein fasta files for multiple sequence alignment
+        logger.info('generating protein fasta files for multiple sequence alignment.')
         if exists(dfa_aa):
             rmtree(dfa_aa)
         makedirs(dfa_aa)
 
         # Parse best hit blastx
+        logger.info('reading blastx files')
         sid_sets = []
         idmap_qs = {}
         sid_qidset = {}
@@ -176,6 +183,7 @@ def run(args):
         common_sid_set = reduce(and_, sid_sets)
 
         # Parse FASTA files
+        logger.info('reading fasta files')
         qseq = {}
         qline = {}
         for i in args.ss:
@@ -195,6 +203,7 @@ def run(args):
                         qseq.update({header: sequence})
                         qline.update({header: 'rc'})
 
+        logger.info('generating protein fasta files.')
         for sid in common_sid_set:
             namelength = 0
             data = []
@@ -214,6 +223,7 @@ def run(args):
 
     if step == 4:
         # Perform MAFFT (multiple sequence alignment)
+        logger.info('performing MAFFT.')
         if exists(dclu_aa):
             rmtree(dclu_aa)
         makedirs(dclu_aa)
@@ -230,6 +240,7 @@ def run(args):
 
     if step == 5:
         # Convert aa clustal files to nt clustal files
+        logger.info('converting protein clustal files to nucleotide clustal files.')
         if exists(dclu_nt):
             rmtree(dclu_nt)
         makedirs(dclu_nt)
@@ -275,6 +286,7 @@ def run(args):
 
     if step == 6:
         # Parse clustal files and report mutation profiles
+        logger.info('begining to parse clustal files and report mutation profiles')
         manager = SyncManager()
         manager.start(lambda: signal.signal(signal.SIGINT, signal.SIG_IGN))
 
@@ -300,6 +312,8 @@ def run(args):
         Pool(args.nthread).map_async(parse_clustal, task).get(pool_timeout)
 
         write_profile(fprofile_nt, profile_nt)
+
+    logger.info('mutation discovery finished.')
 
 
 def parse_clustal(path_in, mutationparser, seqtype, clustal_mutation_profiles):
