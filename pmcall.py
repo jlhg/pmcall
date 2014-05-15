@@ -343,6 +343,12 @@ def run(args):
 
         write_profile(fprofile_nt, profile_nt)
 
+        step = 7
+        fwrite(fstep, '7')
+
+    if step == 7:
+        logger.info('nothing to do.')
+
     logger.info('mutation discovery finished.')
 
 
