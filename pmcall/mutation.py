@@ -64,12 +64,13 @@ class MutationParser(object):
 
         block = group_continuous_number(nogap_indexes)
         mutation_indexes = []
+        mutation_code = {}
         for i in block:
             clustal_mutation_profile.nblock += 1
             blocklen = i[1] - i[0] + 1
             nast = 0
-            for i in range(i[0], i[1] + 1):
-                if clustalseq_consv[i] == '*':
+            for j in range(i[0], i[1] + 1):
+                if clustalseq_consv[j] == '*':
                     nast += 1
             perfect_match_percent = nast / float(blocklen)
 
@@ -81,7 +82,7 @@ class MutationParser(object):
             block_profile.end = i[1] + 1
             block_profile.length = i[1] - i[0] + 1
             block_profile.perfect_match_percent = round(perfect_match_percent, 2)
-            clustal_mutation_profile.block_profile.append(block_profile)
+            clustal_mutation_profile.block_profiles.append(block_profile)
 
             for j in range(i[0], i[1] + 1):
                 bases_ss = [x[j] for x in clustalseqs_ss]
@@ -114,16 +115,18 @@ class MutationParser(object):
                 if retrieve_mutation:
                     clustal_mutation_profile.nmutation += 1
                     mutation_indexes.append(j)
+                    mutation_code.update({j: (bases_ss[0], bases_rs[0])})
 
         if mutation_indexes:
             for header, seq in clustal.records.items():
                 clustal_mutation_profile.mutation_profiles.update({header: []})
-                for i in mutation_indexes:
+                for j in mutation_indexes:
                     mutation_profile = ''.join([
-                        bases_ss[0],
-                        len(seq[0: i + 1].replace('-', '')),
-                        bases_rs[0],
+                        mutation_code.get(j)[0],
+                        str(len(seq[0: j + 1].replace('-', ''))),
+                        mutation_code.get(j)[1],
                     ])
+                    # print(mutation_profile)
                     clustal_mutation_profile.mutation_profiles.get(header).append(mutation_profile)
 
         return clustal_mutation_profile

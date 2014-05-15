@@ -52,11 +52,15 @@ def reverse_complement(seq):
 
 def translate(seq, frame):
     seq = seq.upper()
+    aa = []
 
     if frame < 0:
-        aa = []
         for i in izip(*[iter(reverse_complement(seq)[-frame - 1:])] * 3):
-            aa.append(DNA_CODON_TABLE.get(''.join(i)))
+            codon = ''.join(i)
+            if codon in DNA_CODON_TABLE:
+                aa.append(DNA_CODON_TABLE.get(''.join(i)))
+            else:
+                aa.append('X')
     else:
         for i in izip(*[iter(seq[frame - 1:])] * 3):
             codon = ''.join(i)

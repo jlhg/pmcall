@@ -54,16 +54,17 @@ def aa_to_nt(fclustal_aa, path_out, ntseq, chunk_size=60):
     clustal_aa = clustalparser.parse(fclustal_aa)
     clustal_nt = Clustal()
     clustal_nt.title = 'CLUSTAL format alignment converted from aa clustal'
-    namepattern = re.compile('\S+\((ss|rs|rc),([+-]*\d+)\)')
+    namepattern = re.compile('(\S+)\((ss|rs|rc),([+-]*\d+)\)')
     namelength = 0
 
-    clustal_aa.pop(CLU_CONSV_NAME)
+    clustal_aa.records.pop(CLU_CONSV_NAME)
     for name, aaseq in clustal_aa.records.items():
         if len(name) > namelength:
             namelength = len(name)
 
-        seq = ntseq.get(name)
-        frame = int(namepattern.match(name).group(2))
+        match = namepattern.match(name)
+        seq = ntseq.get(match.group(1))
+        frame = int(match.group(3))
         orf = []
         if frame < 0:
             for i in izip(*[iter(reverse_complement(seq)[-frame - 1:])] * 3):
@@ -83,11 +84,13 @@ def aa_to_nt(fclustal_aa, path_out, ntseq, chunk_size=60):
         clustal_nt.records.update({name: chunk_string(''.join(nt), chunk_size)})
 
     consv = []
-    for i in izip(*clustal_nt.records.values()):
+
+    for i in izip(*[''.join(x) for x in clustal_nt.records.values()]):
         if all(x == i[0] for x in i):
             consv.append('*')
         else:
             consv.append(' ')
+
     consvseq = chunk_string(''.join(consv), chunk_size)
 
     nchunk = len(consvseq)
@@ -104,4 +107,4 @@ def aa_to_nt(fclustal_aa, path_out, ntseq, chunk_size=60):
 
 
 def chunk_string(text, length):
-    return (text[0 + x:length + x] for x in range(0, len(text), length))
+    return [text[0 + x:length + x] for x in range(0, len(text), length)]
