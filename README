@@ -1,0 +1,13 @@
+# pmcall - Point Mutation Discovery
+
+## Requirements
+
+* Python 2.7
+* MAFFT
+* NCBI BLAST+
+
+## Getting Started
+
+See helps:
+
+$ ./pmcall.py -h

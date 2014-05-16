@@ -423,10 +423,6 @@ def main():
                         metavar='<file>',
                         nargs='+',
                         help='recovered line sequences in FASTA format')
-    parser.add_argument('-blastx', dest='blastx',
-                        metavar='<file>',
-                        nargs='+',
-                        help='blastx supports in extended tabular format')
     parser.add_argument('-ref', dest='ref',
                         metavar='<file>',
                         required=True,
@@ -435,6 +431,10 @@ def main():
                         metavar='<dir>',
                         required=True,
                         help='output directory')
+    parser.add_argument('-blastx', dest='blastx',
+                        metavar='<file>',
+                        nargs='+',
+                        help='blastx supports in extended tabular format')
     parser.add_argument('-bl', dest='blocklen',
                         metavar='<int>',
                         type=int,
