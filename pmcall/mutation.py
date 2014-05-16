@@ -126,7 +126,6 @@ class MutationParser(object):
                         str(len(seq[0: j + 1].replace('-', ''))),
                         mutation_code.get(j)[1],
                     ])
-                    # print(mutation_profile)
                     clustal_mutation_profile.mutation_profiles.get(header).append(mutation_profile)
 
         return clustal_mutation_profile

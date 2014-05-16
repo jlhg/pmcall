@@ -124,6 +124,10 @@ def run(args):
 
     logger = logging.getLogger('main')
     logger.info('Starting to perform mutation discovery.')
+    logger.info('Block length (-bl): {0}'.format(args.blocklen))
+    logger.info('Perfect matching percent (-pp): {0}'.format(args.perfect_match_percent))
+    logger.info('Side length (-sl): {0}'.format(args.sidelen))
+    logger.info('Side perfect matching percent (-sp): {0}'.format(args.side_match_percent))
 
     if exists(fstep):
         step = int(open(fstep, 'r').read())
@@ -337,7 +341,7 @@ def run(args):
             task.append((i, mutationparser, 'aa', profile_aa))
         Pool(args.nthread).map_async(parse_clustal_wrapper, task).get(pool_timeout)
 
-        write_profile(fprofile_aa, profile_aa)
+        write_profile(fprofile_aa, 'aa', profile_aa)
 
         profile_nt = manager.dict()
 
@@ -346,7 +350,7 @@ def run(args):
             task.append((i, mutationparser, 'nt', profile_nt))
         Pool(args.nthread).map_async(parse_clustal_wrapper, task).get(pool_timeout)
 
-        write_profile(fprofile_nt, profile_nt)
+        write_profile(fprofile_nt, 'nt', profile_nt)
 
         step = 7
         fwrite(fstep, '7')
@@ -359,7 +363,9 @@ def parse_clustal(path_in, mutationparser, seqtype, clustal_mutation_profiles):
     clustal_mutation_profiles.update({basename(path_in).rstrip('.fa.clu'): profile})
 
 
-def write_profile(fprofile, clustal_mutation_profiles):
+def write_profile(fprofile, seqtype, clustal_mutation_profiles):
+    namepattern = re.compile('(\S+)\((ss|rs|rc),([+-]*\d+)\)')
+
     with open(fprofile, 'w') as fo:
         fo.write('# Mutation Profiles\n')
         fo.write('\t'.join([
@@ -373,13 +379,27 @@ def write_profile(fprofile, clustal_mutation_profiles):
 
         for sid, cm_profile in clustal_mutation_profiles.items():
             for qid, m_profile in cm_profile.mutation_profiles.items():
-                fo.write('\t'.join([
-                    str(cm_profile.nblock),
-                    str(cm_profile.nmutation),
-                    sid,
-                    qid,
-                    ', '.join(m_profile),
-                ]))
+                if seqtype == 'nt':
+                    frame = int(namepattern.match(qid).group(3))
+                    posfix_m_profile = []
+                    for i in m_profile:
+                        posfix = re.sub('(\d+)', lambda x: str(int(x.group(1)) + (abs(frame) - 1)), i)
+                        posfix_m_profile.append(posfix)
+                    fo.write('\t'.join([
+                        str(cm_profile.nblock),
+                        str(cm_profile.nmutation),
+                        sid,
+                        qid,
+                        ', '.join('{0}({1})'.format(m_profile[x], posfix_m_profile[x]) for x in range(len(m_profile))),
+                    ]))
+                else:
+                    fo.write('\t'.join([
+                        str(cm_profile.nblock),
+                        str(cm_profile.nmutation),
+                        sid,
+                        qid,
+                        ', '.join(m_profile),
+                    ]))
                 fo.write('\n')
                 fo.flush()
 
