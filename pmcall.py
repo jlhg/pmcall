@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2014 Jian-Long Huang <jianlong@ntu.edu.tw>
 
-__version__ = '1.1'
+__version__ = '1.2'
 
 import re
 import sys
@@ -164,10 +164,12 @@ def run(args):
         else:
             fqueries = args.ss + args.rs
 
+        nfquery = 0
         for i in fqueries:
-            fblastxout = join(dblastx, '{0}_to_{1}.blastx'.format(basename(i), basename(args.ref)))
+            fblastxout = join(dblastx, '{0}_to_{1}.{2}.blastx'.format(basename(i), basename(args.ref), nfquery))
             task.append((i, fmakeblastdbout, fblastxout))
             args.blastx.append(fblastxout)
+            nfquery += 1
         Pool(args.nthread).map_async(blastx_wrapper, task).get(pool_timeout)
 
         step = 2
@@ -182,12 +184,15 @@ def run(args):
 
         task[:] = []
 
+        nblastx = 0
         if args.blastx:
             for i in args.blastx:
-                task.append((i, join(dbesthit, '{0}.besthit'.format(basename(i)))))
+                task.append((i, join(dbesthit, '{0}.{1}.besthit'.format(basename(i), nblastx))))
+                nblastx += 1
         else:
             for i in (join(dblastx, x) for x in listdir(dblastx) if isfile(join(dblastx, x)) and splitext(x)[-1] == '.blastx'):
-                task.append((i, join(dbesthit, '{0}.besthit'.format(basename(i)))))
+                task.append((i, join(dbesthit, '{0}.{1}.besthit'.format(basename(i), nblastx))))
+                nblastx += 1
         Pool(args.nthread).map_async(besthit_wrapper, task).get(pool_timeout)
 
         step = 3
