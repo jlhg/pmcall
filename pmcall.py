@@ -2,7 +2,7 @@
 #
 # Copyright (C) 2014 Jian-Long Huang <jianlong@ntu.edu.tw>
 
-__version__ = '1.0'
+__version__ = '1.1'
 
 import re
 import sys

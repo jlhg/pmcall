@@ -7,7 +7,7 @@ def makeblastdb(path_in, dbtype, path_out):
     makeblastdb -in {0} -dbtype {1} -out {2} 1>/dev/null
     """.format(path_in, dbtype, path_out)
 
-    return call(cmd, shell=True)
+    return call(cmd, shell=True, executable='/bin/bash')
 
 
 def blastx(query, db, out):
@@ -17,7 +17,7 @@ def blastx(query, db, out):
     gaps nident positive ppos qcovhsp staxids salltitles"
     """.format(query, db, out)
 
-    return call(cmd, shell=True)
+    return call(cmd, shell=True, executable='/bin/bash')
 
 
 def besthit(path_in, path_out):
@@ -29,7 +29,7 @@ def besthit(path_in, path_out):
     sort -t$'\t' -k1,1 -u >{1}
     """.format(path_in, path_out)
 
-    return call(cmd, shell=True)
+    return call(cmd, shell=True, executable='/bin/bash')
 
 
 def parse_blastext_frame(blastext_path):

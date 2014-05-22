@@ -9,4 +9,4 @@ def mafft(path_in, path_out, namelength=30):
     {1} >{2} 2>/dev/null
     """.format(namelength, path_in, path_out)
 
-    return call(cmd, shell=True)
+    return call(cmd, shell=True, executable='/bin/bash')
